@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Live Quiz Scoreboard</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script src="/socket.io/socket.io.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+
+<style>
+body {
+    font-family: Arial;
+    background: linear-gradient(135deg,#141e30,#243b55);
+    color: white;
+    text-align: center;
+}
+
+.section { margin: 15px auto; }
+
+table {
+    margin: 20px auto;
+    border-collapse: collapse;
+    width: 85%;
+    background: rgba(255,255,255,0.1);
+}
+
+th, td {
+    padding: 10px;
+    font-size: 16px;
+}
+
+th { background: rgba(0,0,0,0.4); }
+
+button {
+    padding: 8px 12px;
+    margin: 4px;
+    font-size: 14px;
+    cursor: pointer;
+}
+
+select, input {
+    padding: 6px;
+    margin: 4px;
+}
+
+.highlight {
+    animation: glow 1s ease-in-out infinite alternate;
+    background-color: rgba(255,255,0,0.3);
+}
+
+@keyframes glow {
+    from { box-shadow: 0 0 5px yellow; }
+    to { box-shadow: 0 0 20px yellow; }
+}
+</style>
+</head>
+<body>
+
+<h1>🏆 Live Quiz Scoreboard</h1>
+
+<div class="section">
+    <label>Select Round:</label>
+    <select id="roundSelect"></select>
+</div>
+
+<div class="section">
+    <select id="teamSelect">
+        <option value="">Select Team</option>
+    </select>
+
+    <button onclick="changeScore(10)">+10</button>
+    <button onclick="changeScore(5)">+5</button>
+    <button onclick="changeScore(-5)">-5</button>
+    <button onclick="changeScore(-10)">-10</button>
+</div>
+
+<table id="scoreTable">
+<thead>
+<tr id="tableHeader">
+    <th>Team</th>
+    <th>Total</th>
+</tr>
+</thead>
+<tbody id="scoreBody"></tbody>
+</table>
+
+<div class="section">
+<button onclick="shareImage()">📲 Share on WhatsApp</button>
+<button onclick="resetScores()">🔄 Reset Scores</button>
+</div>
+
+<div class="section">
+<h3>⚙ Manage Teams</h3>
+<input type="text" id="newTeam" placeholder="New Team Name">
+<button onclick="addTeam()">Add Team</button>
+<button onclick="deleteTeam()">Delete Selected</button>
+</div>
+
+<div class="section">
+<h3>🎯 Manage Rounds</h3>
+<input type="number" id="totalRounds" placeholder="Total Rounds">
+<button onclick="setRounds()">Set Rounds</button>
+</div>
+
+<script>
+
+const socket = io();
+
+let teams = [];
+let rounds = 1;
+let scores = {}; 
+let currentRound = 1;
+let lastUpdatedTeam = null;
+
+socket.on('scoreUpdate', (data) => {
+    scores = data.scores;
+    lastUpdatedTeam = data.lastUpdated;
+    teams = Object.keys(scores);
+    render();
+});
+
+function render(){
+
+    const body = document.getElementById('scoreBody');
+    const select = document.getElementById('teamSelect');
+    const header = document.getElementById('tableHeader');
+    const roundSelect = document.getElementById('roundSelect');
+
+    body.innerHTML = "";
+    select.innerHTML = "<option value=''>Select Team</option>";
+    roundSelect.innerHTML = "";
+
+    for(let i=1;i<=rounds;i++){
+        roundSelect.innerHTML += `<option value="${i}">Round ${i}</option>`;
+    }
+    roundSelect.value = currentRound;
+
+    header.innerHTML = "<th>Team</th>";
+    for(let i=1;i<=rounds;i++){
+        header.innerHTML += `<th>R${i}</th>`;
+    }
+    header.innerHTML += "<th>Total</th>";
+
+    // SORT by total DESC
+    teams.sort((a,b)=>{
+        const totalA = Object.values(scores[a]).reduce((x,y)=>x+y,0);
+        const totalB = Object.values(scores[b]).reduce((x,y)=>x+y,0);
+        return totalB - totalA;
+    });
+
+    teams.forEach(team => {
+
+        let row = document.createElement("tr");
+
+        if(team === lastUpdatedTeam){
+            row.classList.add("highlight");
+            setTimeout(()=> row.classList.remove("highlight"),3000);
+        }
+
+        let total = 0;
+        let rowHTML = `<td>${team}</td>`;
+
+        for(let i=1;i<=rounds;i++){
+            let roundScore = scores[team][i] || 0;
+            total += roundScore;
+            rowHTML += `<td>${roundScore}</td>`;
+        }
+
+        rowHTML += `<td><b>${total}</b></td>`;
+        row.innerHTML = rowHTML;
+        body.appendChild(row);
+
+        select.innerHTML += `<option value="${team}">${team}</option>`;
+    });
+}
+
+function changeScore(points){
+    const team = document.getElementById('teamSelect').value;
+    currentRound = parseInt(document.getElementById('roundSelect').value);
+    if(!team) return alert("Select a team");
+
+    socket.emit('updateScore', { team, points, round: currentRound });
+}
+
+function addTeam(){
+    const name = document.getElementById('newTeam').value.trim();
+    if(!name) return;
+    socket.emit('addTeam', name);
+    document.getElementById('newTeam').value="";
+}
+
+function deleteTeam(){
+    const team = document.getElementById('teamSelect').value;
+    if(!team) return alert("Select team");
+    socket.emit('deleteTeam', team);
+}
+
+function setRounds(){
+    const total = parseInt(document.getElementById('totalRounds').value);
+    if(total > 0){
+        rounds = total;
+        render();
+    }
+}
+
+function resetScores(){
+    if(confirm("Reset all scores?")){
+        socket.emit('resetScores');
+    }
+}
+
+async function shareImage() {
+
+    const originalTable = document.getElementById("scoreTable");
+
+    if (!originalTable) {
+        alert("Table not found!");
+        return;
+    }
+
+    // Clone table
+    const clonedTable = originalTable.cloneNode(true);
+
+    // Force white background + black text
+    clonedTable.style.background = "white";
+    clonedTable.style.color = "black";
+    clonedTable.style.width = "100%";
+    clonedTable.style.borderCollapse = "collapse";
+
+    clonedTable.querySelectorAll("th, td").forEach(cell => {
+        cell.style.color = "black";
+        cell.style.background = "white";
+        cell.style.border = "1px solid black";
+    });
+
+    const wrapper = document.createElement("div");
+    wrapper.style.padding = "20px";
+    wrapper.style.background = "white";
+    wrapper.appendChild(clonedTable);
+
+    document.body.appendChild(wrapper);
+
+    const canvas = await html2canvas(wrapper);
+
+    canvas.toBlob(async function(blob){
+
+        const file = new File([blob], "scoreboard.png", { type: "image/png" });
+
+        // Mobile share support
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+
+            await navigator.share({
+                title: "Live Quiz Scoreboard",
+                files: [file]
+            });
+
+        } else {
+
+            // Fallback download
+            const link = document.createElement("a");
+            link.href = URL.createObjectURL(blob);
+            link.download = "scoreboard.png";
+            link.click();
+
+            alert("Image downloaded. Share manually on WhatsApp.");
+        }
+
+        document.body.removeChild(wrapper);
+
+    }, "image/png");
+}
+document.getElementById('roundSelect').addEventListener('change', function(){
+    currentRound = parseInt(this.value);
+});
+
+</script>
+
+</body>
+</html>
