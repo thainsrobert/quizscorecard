@@ -112,8 +112,12 @@ let currentRound = 1;
 let lastUpdatedTeam = null;
 
 socket.on('scoreUpdate', (data) => {
+
     scores = data.scores;
+    rounds = data.rounds;
+    currentRound = data.currentRound;
     lastUpdatedTeam = data.lastUpdated;
+
     teams = Object.keys(scores);
     render();
 });
@@ -197,8 +201,7 @@ function deleteTeam(){
 function setRounds(){
     const total = parseInt(document.getElementById('totalRounds').value);
     if(total > 0){
-        rounds = total;
-        render();
+        socket.emit("setRounds", total);
     }
 }
 
@@ -269,7 +272,7 @@ async function shareImage() {
     }, "image/png");
 }
 document.getElementById('roundSelect').addEventListener('change', function(){
-    currentRound = parseInt(this.value);
+    socket.emit("changeRound", parseInt(this.value));
 });
 
 </script>
